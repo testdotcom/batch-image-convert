@@ -11,18 +11,18 @@ def blocking_image_conversion(input_path: Path, output_path: Path) -> str:
         with Image.open(input_path) as img:
             img.save(output_path, format="JXL", quality=90)
     except Exception as e:
-        return f'Could not process {input_path.name}: {e}.'
+        return f"Could not process {input_path.name}: {e}."
 
     return ""
 
-async def process_image(input_path: Path, output_dir: Path) -> str:
-    output_path = output_dir / f'{input_path.stem}.jxl'
 
-    msg = await asyncio.to_thread(
-        blocking_image_conversion, input_path, output_path
-    )
+async def process_image(input_path: Path, output_dir: Path) -> str:
+    output_path = output_dir / f"{input_path.stem}.jxl"
+
+    msg = await asyncio.to_thread(blocking_image_conversion, input_path, output_path)
 
     return msg
+
 
 async def main():
     input_dir = Path("./test")
@@ -40,7 +40,7 @@ async def main():
                 task = tg.create_task(process_image(path, output_dir))
                 tasks.append(task)
 
-        print(f'Results: {" ".join(t.result() for t in tasks)}')
+        print(f"Results: {' '.join(t.result() for t in tasks)}")
     except asyncio.CancelledError as e:
         logging.critical("A task has been cancelled.", exc_info=e)
     except Exception as e:
@@ -50,8 +50,8 @@ async def main():
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.DEBUG,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     asyncio.run(main())
