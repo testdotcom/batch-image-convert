@@ -1,48 +1,38 @@
 import argparse
-import asyncio
 import logging
-from pathlib import Path
+
+import trio
+from trio import to_thread
 
 import pillow_jxl  # noqa: F401
 from PIL import Image
 
 
-def blocking_image_conversion(input_path: Path, output_path: Path, format: str) -> str:
-    try:
+async def process_image(
+    input_path: trio.Path, output_dir: trio.Path, format: str
+) -> None:
+    output_path = output_dir / f"{input_path.stem}.{format}"
+
+    def _img_conversion():
         with Image.open(input_path) as img:
             img.save(output_path, format.upper(), quality=90)
-    except Exception as e:
-        return f"Could not process {input_path.name}: {e}."
-
-    return ""
-
-
-async def process_image(input_path: Path, output_dir: Path, format: str) -> str:
-    output_path = output_dir / f"{input_path.stem}.jxl"
-    msg = await asyncio.to_thread(blocking_image_conversion, input_path, output_path, format)
-
-    return msg
-
-
-async def batch_convertion(input_dir: Path, output_dir: Path, format: str):
-    tasks = []
-
-    allowed_extensions = {".jpg", ".jpeg", ".png"}
-    image_paths = [
-        p for p in input_dir.iterdir() if p.suffix.lower() in allowed_extensions
-    ]
 
     try:
-        async with asyncio.TaskGroup() as tg:
-            for path in image_paths:
-                task = tg.create_task(process_image(path, output_dir, format))
-                tasks.append(task)
-
-        print(f"Results: {' '.join(t.result() for t in tasks)}")
-    except asyncio.CancelledError as e:
-        logging.critical("A task has been cancelled.", exc_info=e)
+        await to_thread.run_sync(_img_conversion)
+        logging.debug(f"Successfully converted {input_path.name} -> {output_path.name}")
     except Exception as e:
-        logging.critical("A task has failed.", exc_info=e)
+        logging.error(f"Could not process {input_path.name}: {e}.")
+
+
+async def batch_convertion(
+    input_dir: trio.Path, output_dir: trio.Path, format: str
+) -> None:
+    allowed_extensions = {".jpg", ".jpeg", ".png"}
+
+    async with trio.open_nursery() as nursery:
+        for p in await input_dir.iterdir():
+            if p.suffix.lower() in allowed_extensions:
+                nursery.start_soon(process_image, p, output_dir, format)
 
 
 if __name__ == "__main__":
@@ -54,21 +44,36 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description="Batch convert images to WebP or JXL.",
-        formatter_class=argparse.RawTextHelpFormatter
+        formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
-        "-i", "--input-dir", type=Path, required=True,
-        help="Path to the source images."
+        "-i",
+        "--input-dir",
+        type=trio.Path,
+        required=True,
+        help="Path to the source images.",
     )
     parser.add_argument(
-        "-o", "--output-dir", type=Path, required=True,
-        help="Path where the converted images will be saved."
+        "-o",
+        "--output-dir",
+        type=trio.Path,
+        required=True,
+        help="Path where the converted images will be saved.",
     )
     parser.add_argument(
-        "-f", "--format", type=str, required=True, choices=['webp', 'jxl'],
-        help="The target image format. Must be one of: webp, jxl."
+        "-f",
+        "--format",
+        type=str,
+        required=True,
+        choices=["jxl"],
+        help="The target image format. Must be one of: webp, jxl.",
     )
 
     cli_args = parser.parse_args()
 
-    asyncio.run(batch_convertion(cli_args.input_dir, cli_args.output_dir, cli_args.format))
+    try:
+        trio.run(
+            batch_convertion, cli_args.input_dir, cli_args.output_dir, cli_args.format
+        )
+    except Exception as e:
+        logging.critical(f"An unexpected error occurred: {e}")
